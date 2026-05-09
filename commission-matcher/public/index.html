@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commission Matcher — Insurance Broker Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">CM</div>
+      <div>
+        <div class="logo-title">CommissionMatch</div>
+        <div class="logo-sub">Broker Intelligence Tool</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-tab="master">
+        <span class="nav-icon">⊞</span>
+        <span>Master Data</span>
+        <span class="nav-badge" id="nav-master-badge" style="display:none"></span>
+      </button>
+      <button class="nav-item" data-tab="match">
+        <span class="nav-icon">⟳</span>
+        <span>Match Statement</span>
+      </button>
+      <button class="nav-item" data-tab="results">
+        <span class="nav-icon">✓</span>
+        <span>Results</span>
+        <span class="nav-badge" id="nav-results-badge" style="display:none"></span>
+      </button>
+      <button class="nav-item" data-tab="samples">
+        <span class="nav-icon">↓</span>
+        <span>Sample Templates</span>
+      </button>
+      <button class="nav-item" data-tab="rules">
+        <span class="nav-icon">≡</span>
+        <span>Match Rules</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-footer-text">Built for Insurance Brokers</div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main">
+
+    <!-- MASTER DATA -->
+    <section id="tab-master" class="tab-section active">
+      <div class="page-header">
+        <h1>Master Policy Data</h1>
+        <p>Upload your complete policy register. This is matched against every commission statement you process.</p>
+      </div>
+
+      <div id="master-upload-area">
+        <div class="info-banner">
+          <span class="info-icon">💡</span>
+          Use the <strong>Sample Templates</strong> tab to download the exact format. Required columns: <strong>C.No, Inst No, Policy No, Customer Name, Total Premium, Policy Start Date, Policy End Date, Brok Due</strong>. Inst No = 0 means base policy; Inst No &gt; 0 means endorsement.
+        </div>
+        <div class="upload-card" id="master-dropzone" onclick="document.getElementById('master-file-input').click()">
+          <div class="upload-icon">📂</div>
+          <div class="upload-title" id="master-upload-title">Drop your master Excel here</div>
+          <div class="upload-sub">or click to browse &nbsp;·&nbsp; .xlsx / .xls</div>
+          <input type="file" id="master-file-input" accept=".xlsx,.xls" style="display:none" onchange="onMasterFileSelected(this)">
+        </div>
+      </div>
+
+      <div id="master-mapping-area" style="display:none">
+        <div class="section-title">Map Your Columns <span class="section-hint">Auto-detected where possible — adjust if needed</span></div>
+        <div class="mapping-grid" id="master-mapping-grid"></div>
+        <button class="btn btn-primary" onclick="saveMasterMapping()">Confirm Mapping &amp; Save →</button>
+      </div>
+
+      <div id="master-ready-area" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box">
+            <div class="stat-label">Total Records</div>
+            <div class="stat-value green" id="stat-total">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Base Policies (Inst=0)</div>
+            <div class="stat-value blue" id="stat-base">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Endorsements</div>
+            <div class="stat-value" id="stat-endo">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Skipped (Brok Due ≈0)</div>
+            <div class="stat-value amber" id="stat-skip">0</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-title">Preview <span class="section-hint">First 6 rows</span></div>
+          <div class="table-wrap" id="master-preview-table"></div>
+        </div>
+        <button class="btn btn-ghost" onclick="resetMaster()">↺ Upload Different File</button>
+      </div>
+    </section>
+
+    <!-- MATCH STATEMENT -->
+    <section id="tab-match" class="tab-section">
+      <div class="page-header">
+        <h1>Match Commission Statement</h1>
+        <p>Upload the Excel statement received from an insurer. The app will find C.No and Inst No for each row.</p>
+      </div>
+
+      <div id="match-no-master" style="display:none">
+        <div class="empty-state">
+          <div class="empty-icon">⚠</div>
+          <div class="empty-title">Upload master data first</div>
+          <div class="empty-sub">Go to the Master Data tab and upload your policy register before matching a statement.</div>
+          <button class="btn btn-primary" onclick="switchTab('master')">Go to Master Data →</button>
+        </div>
+      </div>
+
+      <div id="match-main-area">
+        <div class="info-banner">
+          <span class="info-icon">💡</span>
+          Use the <strong>Sample Templates</strong> tab to download the statement template. Paste the insurer's data under the same headings for best auto-detection.
+        </div>
+        <div class="upload-card" id="stmt-dropzone" onclick="document.getElementById('stmt-file-input').click()">
+          <div class="upload-icon">📋</div>
+          <div class="upload-title" id="stmt-upload-title">Drop commission statement here</div>
+          <div class="upload-sub">or click to browse &nbsp;·&nbsp; .xlsx / .xls</div>
+          <input type="file" id="stmt-file-input" accept=".xlsx,.xls" style="display:none" onchange="onStmtFileSelected(this)">
+        </div>
+
+        <div id="stmt-mapping-area" style="display:none">
+          <div class="section-title">Map Statement Columns</div>
+          <div class="mapping-grid" id="stmt-mapping-grid"></div>
+          <button class="btn btn-primary" onclick="runMatching()">⚡ Run Matching</button>
+        </div>
+
+        <div id="matching-progress" style="display:none">
+          <div class="card">
+            <div class="section-title">Matching in progress…</div>
+            <div class="progress-label" id="prog-label">Starting…</div>
+            <div class="progress-track"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+            <div class="log-box" id="match-log"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section id="tab-results" class="tab-section">
+      <div class="page-header">
+        <h1>Match Results</h1>
+        <p>Review matched, partial, and unmatched rows. Download enriched Excel with C.No &amp; Inst No appended.</p>
+      </div>
+
+      <div id="results-empty" class="empty-state">
+        <div class="empty-icon">📊</div>
+        <div class="empty-title">No results yet</div>
+        <div class="empty-sub">Run matching on the Match Statement tab first.</div>
+      </div>
+
+      <div id="results-content" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box">
+            <div class="stat-label">Total Rows</div>
+            <div class="stat-value" id="r-total">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">100% Matched</div>
+            <div class="stat-value green" id="r-100">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Partial Match</div>
+            <div class="stat-value amber" id="r-partial">0</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Unmatched</div>
+            <div class="stat-value red" id="r-unmatched">0</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="results-toolbar">
+            <div class="section-title" style="margin:0">Results Table</div>
+            <div class="toolbar-right">
+              <select id="results-filter" onchange="renderResultsTable()">
+                <option value="all">All rows</option>
+                <option value="100">100% Matched</option>
+                <option value="partial">Partial Match</option>
+                <option value="unmatched">Unmatched</option>
+              </select>
+              <button class="btn btn-success" onclick="downloadResults()">↓ Download Excel</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="results-table"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SAMPLE TEMPLATES -->
+    <section id="tab-samples" class="tab-section">
+      <div class="page-header">
+        <h1>Sample Templates</h1>
+        <p>Download these Excel templates, fill in your data using the same column headings, and the app will auto-detect everything perfectly every time.</p>
+      </div>
+
+      <div class="template-grid">
+        <div class="template-card green">
+          <div class="template-icon">📗</div>
+          <div class="template-title">Master Policy Template</div>
+          <div class="template-desc">Your complete policy register. Fill this with all your policies — includes base policies and endorsements.</div>
+          <div class="template-cols">
+            <span class="col-tag">C.No</span><span class="col-tag">Inst No</span><span class="col-tag">Policy No</span><span class="col-tag">Endorsement No</span><span class="col-tag">Customer Name</span><span class="col-tag">Insurer Name</span><span class="col-tag">Department</span><span class="col-tag">Policy Type</span><span class="col-tag">OD Premium</span><span class="col-tag">TP Premium</span><span class="col-tag">Total Premium</span><span class="col-tag">Sum Insured</span><span class="col-tag">Policy Start Date</span><span class="col-tag">Policy End Date</span><span class="col-tag">Brok Due</span>
+          </div>
+          <button class="btn btn-success" onclick="downloadMasterTemplate()">↓ Download Master Template</button>
+        </div>
+
+        <div class="template-card blue">
+          <div class="template-icon">📘</div>
+          <div class="template-title">Commission Statement Template</div>
+          <div class="template-desc">Format your insurer's statement under these headings before uploading. Includes sample rows showing Motor, Fire, Health, Travel policies.</div>
+          <div class="template-cols">
+            <span class="col-tag">Policy No</span><span class="col-tag">Endorsement No</span><span class="col-tag">Customer Name</span><span class="col-tag">Insurer Name</span><span class="col-tag">OD Premium</span><span class="col-tag">TP Premium</span><span class="col-tag">Total Premium</span><span class="col-tag">Policy Start Date</span><span class="col-tag">Policy End Date</span><span class="col-tag">Commission Amount</span>
+          </div>
+          <button class="btn btn-primary" onclick="downloadStmtTemplate()">↓ Download Statement Template</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:24px">
+        <div class="section-title">What the sample data shows</div>
+        <div class="samples-explainer">
+          <div class="explainer-row"><span class="badge green">CNT001 / Inst 0</span> Base motor policy — Package Policy with OD + TP premium</div>
+          <div class="explainer-row"><span class="badge amber">CNT002 / Inst 1</span> Endorsement on the same policy — matched by Endorsement No</div>
+          <div class="explainer-row"><span class="badge blue">CNT003 / Inst 0</span> Fire IAR policy — no OD/TP, only total premium</div>
+          <div class="explainer-row"><span class="badge green">CNT004 / Inst 0</span> Group Mediclaim — Health policy with large sum insured</div>
+          <div class="explainer-row"><span class="badge amber">CNT006 / Inst 2</span> Second endorsement on health policy</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RULES -->
+    <section id="tab-rules" class="tab-section">
+      <div class="page-header">
+        <h1>Match Rules</h1>
+        <p>How the matching engine decides which master record belongs to each commission row.</p>
+      </div>
+
+      <div class="rules-grid">
+        <div class="rule-card green">
+          <div class="rule-level">100% Match</div>
+          <div class="rule-condition">Policy No + Customer Name + Premium + (Start Year or End Year)</div>
+          <div class="rule-desc">All four criteria agree. Definite match — C.No and Inst No filled with full confidence.</div>
+        </div>
+        <div class="rule-card amber">
+          <div class="rule-level">Partial — High</div>
+          <div class="rule-condition">Policy No + Premium + Year</div>
+          <div class="rule-desc">Strong match — policy number and premium agree with year validation. Customer name may differ slightly.</div>
+        </div>
+        <div class="rule-card amber">
+          <div class="rule-level">Partial — Mid</div>
+          <div class="rule-condition">Policy No + Endorsement No + Year &nbsp;·&nbsp; or &nbsp;·&nbsp; Endorsement No + Premium + Year</div>
+          <div class="rule-desc">Good match for endorsement rows when both identifiers agree.</div>
+        </div>
+        <div class="rule-card amber">
+          <div class="rule-level">Partial — Low</div>
+          <div class="rule-condition">Policy No + Year &nbsp;·&nbsp; or &nbsp;·&nbsp; Customer Name + Premium + Year (when no Policy No in master)</div>
+          <div class="rule-desc">Weaker match — needs manual review but likely correct.</div>
+        </div>
+        <div class="rule-card red">
+          <div class="rule-level">Unmatched</div>
+          <div class="rule-condition">Year mismatch on all candidates, or no match found</div>
+          <div class="rule-desc">Even if Policy No and Premium match, a year mismatch means wrong policy year — rejected to prevent bad picks.</div>
+        </div>
+        <div class="rule-card gray">
+          <div class="rule-level">Skipped (Master)</div>
+          <div class="rule-condition">Brok Due within ±5 of zero</div>
+          <div class="rule-desc">Records with near-zero brokerage are excluded from the matching pool entirely.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:8px">
+        <div class="section-title">Inst No / Endorsement Separation</div>
+        <p class="rule-body-text"><strong>Inst No = 0</strong> (base policies) only match statement rows with <em>no endorsement number</em>.<br><strong>Inst No &gt; 0</strong> (endorsements) only match statement rows <em>that carry an endorsement number</em>. The two pools never cross-match — a base policy will never accidentally match an endorsement row.</p>
+      </div>
+      <div class="card">
+        <div class="section-title">Year / Date Logic</div>
+        <p class="rule-body-text">The year is extracted from Policy Start Date and Policy End Date on both sides. At least one of the two years must agree between the statement row and the master record. Handles dd/mm/yyyy, yyyy-mm-dd, and Excel serial date formats automatically.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
