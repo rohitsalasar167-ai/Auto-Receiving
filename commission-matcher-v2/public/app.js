@@ -1,19 +1,49 @@
 /* ═══════════════════════════════════════════════
-   CommissionMatcher v4 — app.js
-   New in v4:
-   - Share % support: full premium = master prem ÷ (share/100)
-   - OD / TP / Total: any one match = premium match
-   - Deep name cleaning (Mr/Mrs/Ltd/Pvt etc stripped)
-   - Fuzzy token matching with configurable threshold
-   - Updated scoring: polno+prem+year = 100%, polno alone = 80%
-   - Per-insurer rules with 8 configurable fields
-   - Consolidated statement with localStorage
+   CommissionMatcher v5 — app.js
+   New in v5:
+   - Editable default rule with Reset button
+   - Policy No Transform modes (icici, strip-prefix, extract-segment, none)
+   - Inst No Mapping modes (endo-seq, direct, ignore)
+   - Extended rules tab: Transform, InstNo, Score, Advanced sections
+   - ICICI default: strip 4225/ prefix, concat core+renewal as master key
+   - Endo sequence → Inst No numeric part matching
+   ── Carried from v4 ──
+   - Share % support, OD/TP/Total any-match
+   - Deep name cleaning, fuzzy token matching
+   - Per-insurer rules, consolidated statement
 ═══════════════════════════════════════════════ */
 
 const SK_MASTER   = 'cm_master_data_v4';
 const SK_MASTER_M = 'cm_master_mapping_v4';
-const SK_RULES    = 'cm_insurer_rules_v4';
+const SK_RULES    = 'cm_insurer_rules_v5';
 const SK_CONSO    = 'cm_consolidated_v4';
+const SK_DEF_RULE = 'cm_default_rule_v5';
+
+/* ── Built-in default rule (reflects your ICICI manual matching) ── */
+const FACTORY_DEFAULT_RULE = {
+  polnoMode:      'contains',   // ICICI: stmt polno substring matches master polno
+  polnoTransform: 'icici',      // strip insurer code, concat core+renewal
+  instnoMode:     'endo-seq',   // extract numeric from 4th segment → match Inst No
+  suffixN:        10,
+  premTol:        2,
+  dateCheck:      'no',         // ICICI motor policies: date check off by default
+  useShare:       true,
+  nameStrip:      true,
+  fuzzyPct:       60,
+  minScore:       45,
+  scorePolCustPrem: 100,
+  scorePolPrem:     95,
+  scorePolOnly:     80,
+  scoreEndoOnly:    80,
+  scorePolEndo:     80,
+  scoreCustPrem:    65,
+  scorePolCust:     60,
+  skipZeroBrok:     true,
+  skipBaseForEndo:  true,
+  notes: 'Auto-configured from ICICI template: strip 4225/ prefix, match core+renewal segment against master policy no',
+};
+
+let defaultRule = {...FACTORY_DEFAULT_RULE};
 
 let masterData    = null, masterCols = [], masterMapping = {};
 let stmtData      = null, stmtCols   = [], stmtMapping   = {};
@@ -142,6 +172,97 @@ function nameMatch(a, b, thresholdPct=60){
   const rev = wb.filter(w=>ca.includes(w)).length / wb.length;
   const score = Math.round(Math.max(fwd, rev) * 100);
   return score >= thresholdPct ? score : 0;
+}
+
+/* ── Policy No Transform ── */
+function transformPolno(rawPolno, transform){
+  // rawPolno is the normalized (lowercased, no spaces) statement polno
+  // We need to work on the original (un-normalized) polno for segment splitting
+  return rawPolno; // Will be handled pre-normalized below
+}
+
+/* Transform statement policy no before matching (raw, un-normalized string) */
+function transformStmtPolno(rawStmt, transform){
+  if(!rawStmt) return {key: norm(rawStmt), endoSeq: null};
+  const s = String(rawStmt).trim();
+  const parts = s.split('/');
+
+  if(transform === 'icici'){
+    // ICICI format: 4225/CORE/RENEWAL/ENDO → master key = norm(CORE + RENEWAL)
+    // e.g. 4225/1000512039/00/0000 → '100051203900'
+    // Also handles 4226/..., 4193i/..., etc with letter suffixes
+    // For ICICI-style (4-digit or 4-digit+letter code first segment):
+    if(parts.length >= 3){
+      // Check if first segment is a short insurer code (≤6 chars) and second is the policy core
+      const first = parts[0];
+      const second = parts[1];
+      const third = parts.length >= 3 ? parts[2] : '';
+      const fourth = parts.length >= 4 ? parts[3] : null;
+      // ICICI numeric codes: 4225, 4226 → strip first segment, concat 2nd+3rd
+      if(/^\d{3,5}[a-z]?$/i.test(first) && /^\d{6,}$/.test(second)){
+        const key = norm(second + third);
+        // endo seq = 4th segment stripped of leading zeros → integer
+        const endoRaw = fourth ? parseInt(fourth, 10) : 0;
+        return {key, endoSeq: endoRaw};
+      }
+    }
+    // Fallback: use full normalized polno
+    return {key: norm(s), endoSeq: null};
+  }
+
+  if(transform === 'strip-prefix'){
+    // Remove first segment (insurer code), use rest joined without separator
+    if(parts.length >= 2){
+      return {key: norm(parts.slice(1).join('')), endoSeq: null};
+    }
+    return {key: norm(s), endoSeq: null};
+  }
+
+  if(transform === 'extract-core'){
+    // Take segments 2 and 3 (0-indexed: 1 and 2) — the core policy number + renewal
+    if(parts.length >= 3){
+      return {key: norm(parts[1] + parts[2]), endoSeq: null};
+    }
+    return {key: norm(s), endoSeq: null};
+  }
+
+  // 'none' or default: use full polno as-is
+  return {key: norm(s), endoSeq: null};
+}
+
+/* Extract the numeric sequence from endo field for Inst No matching */
+function extractEndoSeq(stmtPolno, stmtEndno){
+  // From statement policy no 4th segment: 4225/CORE/RENEWAL/ENDO → parseInt(ENDO)
+  const polParts = String(stmtPolno||'').split('/');
+  if(polParts.length >= 4){
+    const seq = parseInt(polParts[3], 10);
+    if(!isNaN(seq)) return seq;
+  }
+  // Try endorsement number 4th segment
+  const endParts = String(stmtEndno||'').split('/');
+  if(endParts.length >= 4){
+    const seq = parseInt(endParts[3], 10);
+    if(!isNaN(seq)) return seq;
+  }
+  return 0;
+}
+
+/* Check if Inst No in master matches the endo sequence from statement */
+function instnoMatch(masterInstno, endoSeq, instnoMode){
+  if(instnoMode === 'ignore') return true; // don't check inst
+  const inst = String(masterInstno||'').trim();
+  if(inst === '0' || inst === '') return endoSeq === 0; // base policy
+  if(instnoMode === 'endo-seq'){
+    // Extract numeric part from master inst no: E1→1, M12→12, E32→32
+    const m = inst.match(/(\d+)$/);
+    if(m) return parseInt(m[1], 10) === endoSeq;
+    return false;
+  }
+  if(instnoMode === 'direct'){
+    // Compare full inst no string with endo seq string
+    return norm(inst) === norm(String(endoSeq));
+  }
+  return true;
 }
 
 /* ── Policy No matching modes ── */
@@ -292,7 +413,59 @@ function resetMaster(){
 }
 
 /* ═══ INSURER RULES ═══ */
-function loadRules(){try{const r=localStorage.getItem(SK_RULES);if(r)insurerRules=JSON.parse(r);}catch{}renderRulesTable();}
+function loadRules(){
+  try{const r=localStorage.getItem(SK_RULES);if(r)insurerRules=JSON.parse(r);}catch{}
+  try{const d=localStorage.getItem(SK_DEF_RULE);if(d)defaultRule={...FACTORY_DEFAULT_RULE,...JSON.parse(d)};}catch{}
+  renderRulesTable();
+  renderDefaultRuleForm();
+}
+function saveRules(){try{localStorage.setItem(SK_RULES,JSON.stringify(insurerRules));}catch{}}
+function saveDefaultRule(){try{localStorage.setItem(SK_DEF_RULE,JSON.stringify(defaultRule));}catch{}}
+function resetDefaultRule(){if(!confirm('Reset default rule to factory settings?'))return;defaultRule={...FACTORY_DEFAULT_RULE};saveDefaultRule();renderDefaultRuleForm();showToast('Default rule reset to factory settings');}
+
+function renderDefaultRuleForm(){
+  const fields=[
+    ['def-polno-mode','polnoMode'],['def-polno-transform','polnoTransform'],['def-instno-mode','instnoMode'],
+    ['def-prem-tol','premTol'],['def-date','dateCheck'],['def-share','useShare'],
+    ['def-namestrip','nameStrip'],['def-fuzzy','fuzzyPct'],['def-min-score','minScore'],
+    ['def-suffix-n','suffixN'],
+    ['def-score-pol-cust-prem','scorePolCustPrem'],['def-score-pol-prem','scorePolPrem'],
+    ['def-score-pol-only','scorePolOnly'],['def-score-endo-only','scoreEndoOnly'],
+    ['def-score-pol-endo','scorePolEndo'],['def-score-cust-prem','scoreCustPrem'],
+    ['def-score-pol-cust','scorePolCust'],
+    ['def-skip-zero-brok','skipZeroBrok'],['def-skip-base-endo','skipBaseForEndo'],
+    ['def-notes','notes'],
+  ];
+  fields.forEach(([elId,key])=>{
+    const el=document.getElementById(elId);
+    if(!el) return;
+    const v=defaultRule[key];
+    if(el.type==='checkbox') el.checked=!!v;
+    else el.value=v!==undefined?String(v):'';
+  });
+  toggleDefSuffix();
+}
+
+function saveDefaultRuleFromForm(){
+  const r={};
+  const get=(id,type)=>{const e=document.getElementById(id);if(!e)return undefined;return type==='num'?parseFloat(e.value):type==='bool'?e.value==='yes'||e.checked:e.value;};
+  r.polnoMode=get('def-polno-mode');r.polnoTransform=get('def-polno-transform');r.instnoMode=get('def-instno-mode');
+  r.suffixN=get('def-suffix-n','num');r.premTol=get('def-prem-tol','num');r.dateCheck=get('def-date');
+  r.useShare=get('def-share','bool');r.nameStrip=get('def-namestrip','bool');
+  r.fuzzyPct=get('def-fuzzy','num');r.minScore=get('def-min-score','num');
+  r.scorePolCustPrem=get('def-score-pol-cust-prem','num');r.scorePolPrem=get('def-score-pol-prem','num');
+  r.scorePolOnly=get('def-score-pol-only','num');r.scoreEndoOnly=get('def-score-endo-only','num');
+  r.scorePolEndo=get('def-score-pol-endo','num');r.scoreCustPrem=get('def-score-cust-prem','num');
+  r.scorePolCust=get('def-score-pol-cust','num');
+  r.skipZeroBrok=get('def-skip-zero-brok','bool');r.skipBaseForEndo=get('def-skip-base-endo','bool');
+  r.notes=get('def-notes');
+  defaultRule=r;saveDefaultRule();showToast('✅ Default rule saved');
+}
+
+function toggleDefSuffix(){
+  const v=document.getElementById('def-polno-mode');
+  if(v) document.getElementById('def-suffix-wrap').style.display=v.value==='suffix'?'block':'none';
+}
 function saveRules(){try{localStorage.setItem(SK_RULES,JSON.stringify(insurerRules));}catch{}}
 
 // Show/hide suffix-n field
