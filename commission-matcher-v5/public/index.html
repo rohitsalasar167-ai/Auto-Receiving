@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CommissionMatcher v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-icon">CM</div>
+      <div><div class="logo-title">CommissionMatch</div><div class="logo-sub">v6 · Insurance Broker Tool</div></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-tab="master"><span class="nav-icon">⊞</span><span>Master Data</span><span class="nav-badge" id="nav-master-badge" style="display:none"></span></button>
+      <button class="nav-item" data-tab="rules"><span class="nav-icon">⚙</span><span>Match Rules</span><span class="nav-badge" id="nav-rules-badge" style="display:none"></span></button>
+      <button class="nav-item" data-tab="match"><span class="nav-icon">⟳</span><span>Match Statement</span></button>
+      <button class="nav-item" data-tab="results"><span class="nav-icon">✓</span><span>Results</span><span class="nav-badge" id="nav-results-badge" style="display:none"></span></button>
+      <button class="nav-item" data-tab="conso"><span class="nav-icon">📦</span><span>Consolidated</span><span class="nav-badge" id="nav-conso-badge" style="display:none"></span></button>
+      <button class="nav-item" data-tab="samples"><span class="nav-icon">↓</span><span>Templates</span></button>
+      <button class="nav-item" data-tab="howrules"><span class="nav-icon">≡</span><span>How It Works</span></button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="storage-status" id="storage-status"><span class="sdot gray"></span> No data saved</div>
+      <div class="sidebar-footer-text">CommissionMatcher v6</div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ══════════════ MASTER DATA ══════════════ -->
+    <section id="tab-master" class="tab-section active">
+      <div class="page-header"><h1>Master Policy Data</h1><p>Your policy register — saved in browser, persists after refresh.</p></div>
+      <div id="master-saved-banner" style="display:none">
+        <div class="info-banner green"><span class="info-icon">✅</span><strong>Master data loaded from browser.</strong> <span id="master-saved-info"></span><button class="btn btn-ghost btn-sm" onclick="resetMaster()" style="margin-left:12px">↺ Replace</button></div>
+      </div>
+      <div id="master-upload-area">
+        <div class="info-banner"><span class="info-icon">💡</span>Key columns: <strong>C.No, Inst No, Policy No, Endorsement No, Customer Name, Insurer Name, OD/TP/Total Premium, Share %, Policy Start Date, Endo Date, Policy End Date, Brok Due</strong>. Download a template from the Templates tab.</div>
+        <div class="upload-card" id="master-dropzone" onclick="document.getElementById('master-file-input').click()">
+          <div class="upload-icon">📂</div>
+          <div class="upload-title" id="master-upload-title">Drop your master Excel here</div>
+          <div class="upload-sub">or click to browse · .xlsx / .xls</div>
+          <input type="file" id="master-file-input" accept=".xlsx,.xls" style="display:none" onchange="onMasterFileSelected(this)">
+        </div>
+      </div>
+      <div id="master-mapping-area" style="display:none">
+        <div class="card"><div class="section-title">Map Your Columns <span class="section-hint">Auto-detected where possible</span></div><div class="mapping-grid" id="master-mapping-grid"></div></div>
+        <button class="btn btn-primary" onclick="saveMasterMapping()">Confirm &amp; Save to Browser →</button>
+      </div>
+      <div id="master-ready-area" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box"><div class="stat-label">Total Records</div><div class="stat-value green" id="stat-total">0</div></div>
+          <div class="stat-box"><div class="stat-label">Base (Inst=0)</div><div class="stat-value blue" id="stat-base">0</div></div>
+          <div class="stat-box"><div class="stat-label">Endorsements</div><div class="stat-value" id="stat-endo">0</div></div>
+          <div class="stat-box"><div class="stat-label">Zero Brok Skipped</div><div class="stat-value amber" id="stat-skip">0</div></div>
+          <div class="stat-box"><div class="stat-label">No Policy No</div><div class="stat-value amber" id="stat-zeropol">0</div></div>
+        </div>
+        <div class="card"><div class="section-title">Preview <span class="section-hint">First 6 rows</span></div><div class="table-wrap" id="master-preview-table"></div></div>
+        <button class="btn btn-ghost" onclick="resetMaster()">↺ Replace with Different File</button>
+      </div>
+    </section>
+
+    <!-- ══════════════ MATCH RULES ══════════════ -->
+    <section id="tab-rules" class="tab-section">
+      <div class="page-header">
+        <h1>Match Rules</h1>
+        <p>Configure every aspect of the matching engine. Default rule applies to all. Add insurer-specific overrides below.</p>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-ghost btn-sm" onclick="exportRules()">📤 Export Rules JSON</button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">📥 Import Rules JSON<input type="file" accept=".json" style="display:none" onchange="importRulesFile(this)"></label>
+        </div>
+      </div>
+
+      <!-- DEFAULT RULE CARD -->
+      <div class="card default-rule-card">
+        <div class="default-rule-header">
+          <div>
+            <div class="section-title" style="margin:0">⚙ Default Rule <span class="section-hint">— applies to ALL insurers unless overridden below</span></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary btn-sm" onclick="saveDefaultRuleFromForm()">💾 Save Default</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="resetDefaultRule()">🔄 Reset to Factory</button>
+          </div>
+        </div>
+
+        <!-- §1: Policy No Trimmer -->
+        <div class="rules-section">
+          <div class="rules-section-title">✂ Policy No Trimmer</div>
+          <div class="field-hint" style="margin-bottom:10px">Statement polno like <code>4225/1000512039/00/0000</code> vs master polno <code>100051203900</code> — trim both sides to the same length so they can match.</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Statement PolNo — Direction</label>
+              <select id="dr-stmt-dir" class="sel-input">
+                <option value="left">Left (take first N chars)</option>
+                <option value="right">Right (take last N chars)</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Statement PolNo — N chars</label>
+              <input type="number" id="dr-stmt-n" value="21" min="5" max="50" class="text-input">
+              <div class="field-hint">e.g. 21 = LEFT(polno, 21) → <code>4225/1000512039/00/00</code></div>
+            </div>
+            <div>
+              <label class="field-label">Master PolNo — Direction</label>
+              <select id="dr-mst-dir" class="sel-input">
+                <option value="left">Left (take first N chars)</option>
+                <option value="right">Right (take last N chars)</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Master PolNo — N chars</label>
+              <input type="number" id="dr-mst-n" value="21" min="5" max="50" class="text-input">
+              <div class="field-hint">Both sides trimmed to same length before comparing</div>
+            </div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:10px">
+            <div>
+              <label class="field-label">Remove colon (:) before trimming</label>
+              <select id="dr-removecolon" class="sel-input">
+                <option value="yes">Yes (Excel behaviour)</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §2: Insurer Matching -->
+        <div class="rules-section">
+          <div class="rules-section-title">🏢 Insurer Matching</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Require insurer match?</label>
+              <select id="dr-ins-match" class="sel-input">
+                <option value="yes">Yes — stmt insurer must match master</option>
+                <option value="no">No — ignore insurer for matching</option>
+              </select>
+              <div class="field-hint">Prevents cross-insurer false matches</div>
+            </div>
+            <div>
+              <label class="field-label">Insurer match mode</label>
+              <select id="dr-ins-fuzzy" class="sel-input">
+                <option value="yes">Fuzzy — substring / first-8-chars</option>
+                <option value="no">Exact match only</option>
+              </select>
+              <div class="field-hint">"ICICI LOMBARD" ≈ "ICICI Lombard GIC"</div>
+            </div>
+            <div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §3: Premium Mode -->
+        <div class="rules-section">
+          <div class="rules-section-title">💰 Premium Matching</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Which premium to match?</label>
+              <select id="dr-prem-mode" class="sel-input">
+                <option value="any">Any — OD, TP or Total (most flexible)</option>
+                <option value="total">Total Premium only</option>
+                <option value="od">OD Premium only</option>
+                <option value="tp">TP Premium only</option>
+                <option value="od_tp">OD or TP (not Total)</option>
+              </select>
+              <div class="field-hint">Some insurers pay OD commission only</div>
+            </div>
+            <div>
+              <label class="field-label">Tolerance %</label>
+              <input type="number" id="dr-prem-tol-pct" value="2" min="0" max="50" step="0.5" class="text-input">
+              <div class="field-hint">2% = within 2% of premium value</div>
+            </div>
+            <div>
+              <label class="field-label">Tolerance ₹ (absolute)</label>
+              <input type="number" id="dr-prem-tol-abs" value="50" min="0" class="text-input">
+              <div class="field-hint">Either % or ₹ tolerance can win</div>
+            </div>
+            <div>
+              <label class="field-label">Apply Share %</label>
+              <select id="dr-share" class="sel-input">
+                <option value="yes">Yes — divide by share%</option>
+                <option value="no">No — use raw premium</option>
+              </select>
+            </div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:10px">
+            <div>
+              <label class="field-label">Multi-year TP check</label>
+              <select id="dr-multiyear" class="sel-input">
+                <option value="yes">Yes — OD + yearDiff × TP</option>
+                <option value="no">No</option>
+              </select>
+              <div class="field-hint">For 3-yr motor: OD + 2×TP</div>
+            </div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §4: Customer Name -->
+        <div class="rules-section">
+          <div class="rules-section-title">👤 Customer Name</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Strip titles / suffixes</label>
+              <select id="dr-namestrip" class="sel-input">
+                <option value="yes">Yes — strip MR/MRS/LTD/PVT etc</option>
+                <option value="no">No — use as-is</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Fuzzy match threshold %</label>
+              <input type="number" id="dr-fuzzy" value="60" min="20" max="100" class="text-input">
+              <div class="field-hint">60 = tokens must overlap 60%+</div>
+            </div>
+            <div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §5: Date Matching -->
+        <div class="rules-section">
+          <div class="rules-section-title">📅 Date Matching</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Which date(s) to match?</label>
+              <select id="dr-date-mode" class="sel-input">
+                <option value="either">Either Start or End date</option>
+                <option value="start">Start Date only</option>
+                <option value="end">End Date only</option>
+                <option value="both">Both Start AND End date</option>
+                <option value="none">Skip date check</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Endo Date fallback</label>
+              <select id="dr-endo-fallback" class="sel-input">
+                <option value="yes">Yes — if endo date blank/mismatch, use start/end</option>
+                <option value="no">No — endo date only for endorsements</option>
+              </select>
+              <div class="field-hint">Safe default for missing endo dates</div>
+            </div>
+            <div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §6: Fallbacks & Filters -->
+        <div class="rules-section">
+          <div class="rules-section-title">🔍 Fallbacks &amp; Filters</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Zero polno fallback</label>
+              <select id="dr-zeropol" class="sel-input">
+                <option value="yes">Yes — use name+prem+date if polno=0/blank</option>
+                <option value="no">No — skip zero-polno master rows</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Skip zero Brok Due rows</label>
+              <select id="dr-skip-brok" class="sel-input">
+                <option value="yes">Yes — skip rows where brok ≈ ₹0</option>
+                <option value="no">No — include all</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Contra detection</label>
+              <select id="dr-contra" class="sel-input">
+                <option value="yes">Yes — detect offsetting entries</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Contra threshold (|sum| ≤)</label>
+              <input type="number" id="dr-contra-thr" value="1" min="0" class="text-input">
+              <div class="field-hint">Sum of commission ≤ this = Contra</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- §7: Score Thresholds -->
+        <div class="rules-section">
+          <div class="rules-section-title">🏆 Confidence Thresholds</div>
+          <div class="rule-form-row four-col">
+            <div>
+              <label class="field-label">Matched threshold (score ≥)</label>
+              <input type="number" id="dr-score-full" value="85" min="50" max="100" class="text-input">
+              <div class="field-hint">Score ≥ this → "Matched" (green)</div>
+            </div>
+            <div>
+              <label class="field-label">Partial threshold (score ≥)</label>
+              <input type="number" id="dr-score-partial" value="45" min="10" max="90" class="text-input">
+              <div class="field-hint">Score ≥ this → "Partial" (amber)</div>
+            </div>
+            <div></div><div></div>
+          </div>
+        </div>
+
+        <!-- §8: Search Waterfall -->
+        <div class="rules-section">
+          <div class="rules-section-title">🔢 Search Order Waterfall</div>
+          <div class="field-hint" style="margin-bottom:12px">The engine tries each enabled step in order — first match wins. Toggle steps on/off and adjust scores. Higher score = higher confidence for that combination.</div>
+          <div class="step-table-wrap">
+            <table class="step-table">
+              <thead><tr><th>#</th><th>Combination</th><th>Active</th><th>Score</th></tr></thead>
+              <tbody id="dr-steps-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="rules-section">
+          <div class="rule-form-row" style="grid-template-columns:1fr">
+            <div><label class="field-label">Notes</label><input type="text" id="dr-notes" class="text-input" placeholder="Describe this rule configuration"></div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-primary" onclick="saveDefaultRuleFromForm()">💾 Save Default Rule</button>
+            <button class="btn btn-ghost" style="color:var(--red)" onclick="resetDefaultRule()">🔄 Reset to Factory Defaults</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PER-INSURER OVERRIDE -->
+      <div class="card" style="margin-top:24px">
+        <div class="section-title">➕ Add Per-Insurer Override <span class="section-hint">— only filled fields override default</span></div>
+
+        <div class="rules-section">
+          <div class="rule-form-row four-col">
+            <div><label class="field-label">Insurer Name <span class="req">*</span></label><input type="text" id="r-insurer" placeholder="e.g. New India Assurance" class="text-input"></div>
+            <div><label class="field-label">Notes</label><input type="text" id="r-notes" placeholder="e.g. OD only, right-trim 15" class="text-input"></div>
+            <div></div><div></div>
+          </div>
+        </div>
+
+        <div class="rules-section">
+          <div class="rules-section-title">✂ Policy No Trim (leave blank to inherit default)</div>
+          <div class="rule-form-row four-col">
+            <div><label class="field-label">Stmt direction</label>
+              <select id="r-stmt-dir" class="sel-input"><option value="">-- inherit --</option><option value="left">Left</option><option value="right">Right</option></select></div>
+            <div><label class="field-label">Stmt N chars</label><input type="number" id="r-stmt-n" placeholder="inherit" class="text-input"></div>
+            <div><label class="field-label">Master direction</label>
+              <select id="r-mst-dir" class="sel-input"><option value="">-- inherit --</option><option value="left">Left</option><option value="right">Right</option></select></div>
+            <div><label class="field-label">Master N chars</label><input type="number" id="r-mst-n" placeholder="inherit" class="text-input"></div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:8px">
+            <div><label class="field-label">Remove colon</label>
+              <select id="r-removecolon" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <div class="rules-section">
+          <div class="rules-section-title">🏢 Insurer / 💰 Premium / 👤 Name</div>
+          <div class="rule-form-row four-col">
+            <div><label class="field-label">Require insurer match</label>
+              <select id="r-ins-match" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Insurer fuzzy</label>
+              <select id="r-ins-fuzzy" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Premium mode</label>
+              <select id="r-prem-mode" class="sel-input"><option value="">-- inherit --</option><option value="any">Any</option><option value="total">Total only</option><option value="od">OD only</option><option value="tp">TP only</option><option value="od_tp">OD or TP</option></select></div>
+            <div><label class="field-label">Prem tol %</label><input type="number" id="r-prem-tol-pct" placeholder="inherit" class="text-input"></div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:8px">
+            <div><label class="field-label">Prem tol ₹</label><input type="number" id="r-prem-tol-abs" placeholder="inherit" class="text-input"></div>
+            <div><label class="field-label">Use Share %</label>
+              <select id="r-share" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Multi-year TP</label>
+              <select id="r-multiyear" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Name fuzzy %</label><input type="number" id="r-fuzzy" placeholder="inherit" class="text-input"></div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:8px">
+            <div><label class="field-label">Name strip</label>
+              <select id="r-namestrip" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div></div><div></div><div></div>
+          </div>
+        </div>
+
+        <div class="rules-section">
+          <div class="rules-section-title">📅 Date / 🔍 Filters / 🏆 Thresholds</div>
+          <div class="rule-form-row four-col">
+            <div><label class="field-label">Date mode</label>
+              <select id="r-date-mode" class="sel-input"><option value="">-- inherit --</option><option value="either">Either</option><option value="start">Start only</option><option value="end">End only</option><option value="both">Both</option><option value="none">Skip</option></select></div>
+            <div><label class="field-label">Endo date fallback</label>
+              <select id="r-endo-fallback" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Zero polno fallback</label>
+              <select id="r-zeropol" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Skip zero brok</label>
+              <select id="r-skip-brok" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+          </div>
+          <div class="rule-form-row four-col" style="margin-top:8px">
+            <div><label class="field-label">Contra check</label>
+              <select id="r-contra" class="sel-input"><option value="">-- inherit --</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+            <div><label class="field-label">Contra threshold</label><input type="number" id="r-contra-thr" placeholder="inherit" class="text-input"></div>
+            <div><label class="field-label">Matched score ≥</label><input type="number" id="r-score-full" placeholder="inherit" class="text-input"></div>
+            <div><label class="field-label">Partial score ≥</label><input type="number" id="r-score-partial" placeholder="inherit" class="text-input"></div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px"><button class="btn btn-primary" onclick="addInsurerRule()">+ Save Insurer Rule</button></div>
+      </div>
+
+      <!-- SAVED RULES TABLE -->
+      <div class="section-title" style="margin-top:20px">Saved Insurer Rules <span class="section-hint" id="rules-count-hint">— none yet</span></div>
+      <div id="rules-empty" class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:22px;opacity:.3">⚙</div><div class="empty-title" style="font-size:13px">No insurer overrides — default rule applies to all</div></div>
+      <div id="rules-table-wrap" style="display:none">
+        <div class="table-wrap">
+          <table><thead><tr><th>Insurer</th><th>Trim (Stmt/Master)</th><th>Prem Mode</th><th>Prem Tol</th><th>Date Mode</th><th>Ins Match</th><th>Score F/P</th><th>Notes</th><th></th></tr></thead>
+          <tbody id="rules-tbody"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ MATCH STATEMENT ══════════════ -->
+    <section id="tab-match" class="tab-section">
+      <div class="page-header"><h1>Match Commission Statement</h1><p>Upload the insurer's Excel. Each row gets matched and assigned C.No &amp; Inst No using the configured waterfall.</p></div>
+      <div id="match-no-master" style="display:none">
+        <div class="empty-state"><div class="empty-icon">⚠</div><div class="empty-title">Upload master data first</div><div class="empty-sub">Go to Master Data tab.</div><button class="btn btn-primary" onclick="switchTab('master')">Go to Master Data →</button></div>
+      </div>
+      <div id="match-main-area">
+        <div class="info-banner"><span class="info-icon">⚙</span>v6 engine: 12-step ordered waterfall. Policy No trimmed on both sides before compare. Insurer name must match. Date mode, premium mode, and all steps configurable in Match Rules.</div>
+        <div class="upload-card" id="stmt-dropzone" onclick="document.getElementById('stmt-file-input').click()">
+          <div class="upload-icon">📋</div>
+          <div class="upload-title" id="stmt-upload-title">Drop commission statement here</div>
+          <div class="upload-sub">or click to browse · .xlsx / .xls</div>
+          <input type="file" id="stmt-file-input" accept=".xlsx,.xls" style="display:none" onchange="onStmtFileSelected(this)">
+        </div>
+        <div id="stmt-mapping-area" style="display:none">
+          <div class="card"><div class="section-title">Map Statement Columns <span class="section-hint">Auto-detected where possible</span></div><div class="mapping-grid" id="stmt-mapping-grid"></div></div>
+          <button class="btn btn-primary" onclick="runMatching()">⚡ Run Matching</button>
+        </div>
+        <div id="matching-progress" style="display:none">
+          <div class="card">
+            <div class="section-title">Matching in progress…</div>
+            <div class="progress-label" id="prog-label">Starting…</div>
+            <div class="progress-track"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+            <div class="log-box" id="match-log"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ RESULTS ══════════════ -->
+    <section id="tab-results" class="tab-section">
+      <div class="page-header"><h1>Match Results</h1><p>Review, download, or add to consolidated.</p></div>
+      <div id="results-empty" class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">No results yet</div><div class="empty-sub">Run matching first.</div></div>
+      <div id="results-content" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box"><div class="stat-label">Total Rows</div><div class="stat-value" id="r-total">0</div></div>
+          <div class="stat-box"><div class="stat-label">✓ Matched</div><div class="stat-value green" id="r-100">0</div></div>
+          <div class="stat-box"><div class="stat-label">Partial</div><div class="stat-value amber" id="r-partial">0</div></div>
+          <div class="stat-box"><div class="stat-label">ENF</div><div class="stat-value red" id="r-unmatched">0</div></div>
+          <div class="stat-box"><div class="stat-label">Zero Commission</div><div class="stat-value" style="color:#818cf8" id="r-zero">0</div></div>
+          <div class="stat-box"><div class="stat-label">Contra</div><div class="stat-value" style="color:#c084fc" id="r-contra">0</div></div>
+        </div>
+        <div class="conso-action-banner">
+          <div class="conso-banner-left"><span style="font-size:26px">📦</span><div><div class="conso-banner-title">Add to Consolidated</div><div class="conso-banner-sub">Append these results to the running register.</div></div></div>
+          <div class="conso-banner-right"><input type="text" id="conso-stmt-label" class="text-input" placeholder="Label e.g. 'ICICI Apr 2025'" style="width:230px"><button class="btn btn-success" onclick="addToConsolidated()">+ Add to Consolidated</button></div>
+        </div>
+        <div class="card">
+          <div class="results-toolbar">
+            <div class="section-title" style="margin:0">Results Table</div>
+            <div class="toolbar-right">
+              <select id="results-filter" onchange="renderResultsTable()">
+                <option value="all">All rows</option>
+                <option value="100">✓ Matched</option>
+                <option value="partial">Partial</option>
+                <option value="unmatched">ENF</option>
+                <option value="zero-commission">Zero Commission</option>
+                <option value="contra">Contra</option>
+              </select>
+              <button class="btn btn-success" onclick="downloadResults()">↓ Download Excel</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="results-table"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ CONSOLIDATED ══════════════ -->
+    <section id="tab-conso" class="tab-section">
+      <div class="page-header"><h1>Consolidated Statement</h1><p>All statements combined. Saved in browser.</p></div>
+      <div id="conso-empty" class="empty-state"><div class="empty-icon">📦</div><div class="empty-title">No consolidated data yet</div><div class="empty-sub">After matching, click "Add to Consolidated" in Results.</div></div>
+      <div id="conso-content" style="display:none">
+        <div class="stat-row">
+          <div class="stat-box"><div class="stat-label">Total Rows</div><div class="stat-value" id="c-total">0</div></div>
+          <div class="stat-box"><div class="stat-label">Statements</div><div class="stat-value blue" id="c-batches">0</div></div>
+          <div class="stat-box"><div class="stat-label">Matched</div><div class="stat-value green" id="c-100">0</div></div>
+          <div class="stat-box"><div class="stat-label">Needs Review</div><div class="stat-value amber" id="c-review">0</div></div>
+        </div>
+        <div class="card" style="margin-bottom:14px"><div class="section-title">Statements</div><div id="conso-batch-list"></div></div>
+        <div class="card">
+          <div class="results-toolbar">
+            <div class="section-title" style="margin:0">All Rows</div>
+            <div class="toolbar-right">
+              <select id="conso-filter" onchange="renderConsoTable()"><option value="all">All</option><option value="100">Matched</option><option value="partial">Partial</option><option value="unmatched">ENF</option></select>
+              <button class="btn btn-success" onclick="downloadConso()">↓ Download</button>
+              <button class="btn btn-ghost" style="color:var(--red)" onclick="clearConso()">🗑 Clear All</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="conso-table"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ TEMPLATES ══════════════ -->
+    <section id="tab-samples" class="tab-section">
+      <div class="page-header"><h1>Sample Templates</h1><p>Download and fill using the same column headings — auto-detection works best.</p></div>
+      <div class="template-grid">
+        <div class="template-card green">
+          <div class="template-icon">📗</div><div class="template-title">Master Policy Template</div>
+          <div class="template-desc">Includes Endo Date column. Shows ICICI master format (100051203900) and standard format side by side. Endorsement rows have Inst No = E1, E2 etc.</div>
+          <div class="template-cols"><span class="col-tag">C.No</span><span class="col-tag">Inst No</span><span class="col-tag">Policy No</span><span class="col-tag">Endorsement No</span><span class="col-tag">Customer Name</span><span class="col-tag">Insurer Name</span><span class="col-tag">OD Premium</span><span class="col-tag">TP Premium</span><span class="col-tag">Total Premium</span><span class="col-tag">Share %</span><span class="col-tag">Start Date</span><span class="col-tag">Endo Date</span><span class="col-tag">End Date</span><span class="col-tag">Brok Due</span></div>
+          <button class="btn btn-success" onclick="downloadMasterTemplate()">↓ Download Master Template</button>
+        </div>
+        <div class="template-card blue">
+          <div class="template-icon">📘</div><div class="template-title">Commission Statement Template</div>
+          <div class="template-desc">Shows ICICI format (4225/CORE/RENEWAL/ENDO) and standard format. Policy No = raw insurer format, Endo No = same or separate.</div>
+          <div class="template-cols"><span class="col-tag">Policy No</span><span class="col-tag">Endorsement No</span><span class="col-tag">Customer Name</span><span class="col-tag">Insurer Name</span><span class="col-tag">OD Premium</span><span class="col-tag">TP Premium</span><span class="col-tag">Total Premium</span><span class="col-tag">Start Date</span><span class="col-tag">End Date</span><span class="col-tag">Commission</span></div>
+          <button class="btn btn-primary" onclick="downloadStmtTemplate()">↓ Download Statement Template</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="section-title">Policy No Trimming Guide</div>
+        <table style="font-size:12px;color:var(--text2);width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--text3);font-size:11px"><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Statement PolNo</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Master PolNo</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Setting</th><th style="padding:6px 8px;text-align:left;border-bottom:1px solid var(--border)">Result</th></tr></thead>
+          <tbody>
+            <tr><td style="padding:6px 8px"><code>4225/1000512039/00/0000</code></td><td style="padding:6px 8px"><code>100051203900</code></td><td style="padding:6px 8px">Stmt Left 21 / Master Left 21</td><td style="padding:6px 8px"><code>4225/1000512039/00/00</code> vs <code>100051203900</code> → <span style="color:var(--amber)">different insurer format, add insurer rule</span></td></tr>
+            <tr><td style="padding:6px 8px"><code>1234567890/0</code></td><td style="padding:6px 8px"><code>1234567890/001</code></td><td style="padding:6px 8px">Both Left 10</td><td style="padding:6px 8px"><code>1234567890</code> = <code>1234567890</code> → <span style="color:var(--green)">Match ✓</span></td></tr>
+            <tr><td style="padding:6px 8px"><code>5006/134308872/00/015</code></td><td style="padding:6px 8px"><code>5006/134308872/00/015</code></td><td style="padding:6px 8px">Left 21</td><td style="padding:6px 8px"><code>5006/134308872/00/015</code> = <code>5006/134308872/00/015</code> → <span style="color:var(--green)">Match ✓</span></td></tr>
+            <tr><td style="padding:6px 8px"><code>MOT2024001234E2</code></td><td style="padding:6px 8px"><code>MOT2024001234</code></td><td style="padding:6px 8px">Both Left 13</td><td style="padding:6px 8px"><code>MOT2024001234</code> = <code>MOT2024001234</code> → <span style="color:var(--green)">Match ✓</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ══════════════ HOW IT WORKS ══════════════ -->
+    <section id="tab-howrules" class="tab-section">
+      <div class="page-header"><h1>How Matching Works</h1><p>v6 ordered waterfall engine.</p></div>
+      <div class="rules-grid">
+        <div class="rule-card green"><div class="rule-level">Step 1 — Score 100</div><div class="rule-condition">Pol + Endo + Prem + Name + Date</div><div class="rule-desc">All five signals agree. Maximum confidence.</div></div>
+        <div class="rule-card green"><div class="rule-level">Step 2 — Score 97</div><div class="rule-condition">Pol + Endo + Prem + Name</div><div class="rule-desc">All four strong signals, no date check.</div></div>
+        <div class="rule-card green"><div class="rule-level">Step 3 — Score 95</div><div class="rule-condition">Pol + Prem + Name + Date</div><div class="rule-desc">No endo match, but pol+prem+name+date all agree.</div></div>
+        <div class="rule-card green"><div class="rule-level">Step 4 — Score 92</div><div class="rule-condition">Pol + Prem + Name</div><div class="rule-desc">Good signal without date.</div></div>
+        <div class="rule-card amber"><div class="rule-level">Step 5 — Score 90</div><div class="rule-condition">Endo + Prem + Name + Date</div><div class="rule-desc">Strong endorsement match.</div></div>
+        <div class="rule-card amber"><div class="rule-level">Step 6–8</div><div class="rule-condition">Endo+Prem+Name / Pol+Prem / Endo+Prem</div><div class="rule-desc">Two-signal combos. Scores 87–82.</div></div>
+        <div class="rule-card amber"><div class="rule-level">Step 9–10</div><div class="rule-condition">Name+Prem+Date / Name+Prem</div><div class="rule-desc">Used when polno=0 in master or polno not available.</div></div>
+        <div class="rule-card red"><div class="rule-level">Step 11–12</div><div class="rule-condition">Pol only / Endo only</div><div class="rule-desc">Single signal — low confidence (50–55). May show as Partial.</div></div>
+        <div class="rule-card gray"><div class="rule-level">Zero Commission</div><div class="rule-condition">Commission between -₹1 and ₹1</div><div class="rule-desc">No matching attempted.</div></div>
+        <div class="rule-card gray"><div class="rule-level">Contra</div><div class="rule-condition">Sum of commission for same polno ≈ 0</div><div class="rule-desc">Offsetting entries. If Cno found = Partial Match with score; if not = Contra.</div></div>
+      </div>
+      <div class="card" style="margin-top:8px">
+        <div class="section-title">Premium Logic (Any mode)</div>
+        <p class="rule-body-text">Checks: Total vs Total, OD vs Total, TP vs Total, OD+yearDiff×TP vs Total (multi-year), group sum vs master PBST, Share%-adjusted TP/OD/Total, and OD vs OD, TP vs TP directly. Any one passing within ±2% (or ±₹50) = premium match.</p>
+      </div>
+      <div class="card">
+        <div class="section-title">Policy No Trimming</div>
+        <p class="rule-body-text">Before comparing, both statement and master policy numbers are trimmed to the same length from the specified direction. Colon (:) is stripped first (Excel behaviour). This handles format differences like <code>4225/1000512039/00/0000</code> vs <code>4225/1000512039/00/00</code> without needing exact length matching. Contains-check also applied after trimming so partial matches still work.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
